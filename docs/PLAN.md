@@ -170,8 +170,8 @@ sabe cuál de las dos capas la causó.
 3. ✅ Security groups
 4. ✅ Cómputo con cloud-init mínimo (verificación de boot y conectividad)
 5. ✅ cloud-init reales: MySQL, Metabase + nginx local, nginx del LB, netplan
-6. ⬜ Carga del dataset de Google Mobility
-7. ⬜ Configuración de Metabase y armado de la visualización
+6. ✅ Carga del dataset de Google Mobility (scripts/load_dataset.sh)
+7. ✅ Configuración de Metabase automatizada por su REST API (provision.py)
 
 ---
 

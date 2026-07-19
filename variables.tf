@@ -121,7 +121,25 @@ variable "metabase_version" {
     (NO metabase.com/start/oss/jar, que es una pagina HTML, no el binario).
   EOT
   type        = string
-  default     = "latest"
+  # Pineada (no "latest"): el aprovisionamiento por API depende de la forma de
+  # la API, que cambia entre versiones. Fijarla hace el TP reproducible y evita
+  # que un apply futuro baje una version que rompa provision.sh.
+  default = "v0.63.1.2"
+}
+
+variable "metabase_admin_email" {
+  description = "Email del usuario admin que crea el aprovisionamiento."
+  type        = string
+  default     = "admin@tele.local"
+}
+
+variable "metabase_admin_password" {
+  description = <<-EOT
+    Password del admin de Metabase. Metabase exige >= 6 chars y rechaza las
+    comunes. Se pasa por TF_VAR_, nunca por archivo.
+  EOT
+  type      = string
+  sensitive = true
 }
 
 variable "metabase_db_name" {

@@ -65,6 +65,48 @@ write_files:
       [Install]
       WantedBy=multi-user.target
 
+  # --- Aprovisionamiento de Metabase (config as code) ----------------------
+  # Valores para provision.py. systemd lee este EnvironmentFile (root, 0600).
+  - path: /etc/metabase/provision.env
+    permissions: '0600'
+    owner: root:root
+    content: |
+      MB_URL=http://127.0.0.1:3000
+      MB_ADMIN_EMAIL=${metabase_admin_email}
+      MB_ADMIN_PASSWORD=${metabase_admin_password}
+      MB_ADMIN_FIRST=Admin
+      MB_ADMIN_LAST=Tele
+      MB_SITE_NAME=Tele Metabase
+      DB_HOST=${db_host}
+      MOBILITY_DB=${mobility_db_name}
+      MOBILITY_RO_PASS=${mobility_ro_password}
+
+  # provision.py va en base64: es un archivo estatico lleno de '$' (python)
+  # que NO debe pasar por la interpolacion de templatefile.
+  - path: /opt/metabase/provision.py
+    permissions: '0755'
+    encoding: b64
+    content: ${provision_py_b64}
+
+  # Unit oneshot: corre una vez despues de metabase. provision.py se auto-guarda
+  # por has-user-setup, asi que re-ejecutarla es inocuo (no hace falta centinela).
+  - path: /etc/systemd/system/metabase-provision.service
+    permissions: '0644'
+    content: |
+      [Unit]
+      Description=Aprovisionamiento inicial de Metabase (via API)
+      After=metabase.service
+      Wants=metabase.service
+
+      [Service]
+      Type=oneshot
+      RemainAfterExit=yes
+      EnvironmentFile=/etc/metabase/provision.env
+      ExecStart=/usr/bin/python3 /opt/metabase/provision.py
+
+      [Install]
+      WantedBy=multi-user.target
+
   # --- nginx: proxy 80 -> 3000 ---------------------------------------------
   # Los headers X-Forwarded-* dejan que Metabase sepa el host/proto reales
   # detras del proxy. Upgrade/Connection habilitan websockets, que la UI usa.
@@ -108,4 +150,6 @@ runcmd:
   # Arrancar Metabase (solo se llega aca si el JAR paso la verificacion).
   - systemctl daemon-reload
   - systemctl enable --now metabase
+  # Aprovisionamiento: provision.py espera health y configura por la API.
+  - systemctl enable --now metabase-provision
   - [ sh, -c, "date -Is > /var/log/appinit-ok" ]

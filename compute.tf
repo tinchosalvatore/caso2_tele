@@ -174,6 +174,13 @@ resource "openstack_compute_instance_v2" "app" {
     metabase_db_name  = var.metabase_db_name
     metabase_password = var.db_metabase_password
     metabase_version  = var.metabase_version
+    # Aprovisionamiento por API:
+    mobility_db_name        = var.mobility_db_name
+    mobility_ro_password    = var.db_mobility_ro_password
+    metabase_admin_email    = var.metabase_admin_email
+    metabase_admin_password = var.metabase_admin_password
+    # provision.py estatico, en base64 para que sus '$' no se interpolen.
+    provision_py_b64 = base64encode(file("${path.module}/cloud-init/provision.py"))
   })
 
   network {
