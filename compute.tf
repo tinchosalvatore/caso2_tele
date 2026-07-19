@@ -188,7 +188,15 @@ resource "openstack_compute_instance_v2" "app" {
   image_name  = var.image_name
   flavor_name = var.flavors["app"]
   key_pair    = var.keypair_name
-  user_data   = local.bootstrap_user_data
+
+  # db_host sale del puerto de la db: esto crea la arista app -> db en el grafo.
+  # tele_net es solo IPv4, asi que all_fixed_ips[0] es la unica IP y es v4.
+  user_data = templatefile("${path.module}/cloud-init/app.yaml", {
+    db_host           = openstack_networking_port_v2.db.all_fixed_ips[0]
+    metabase_db_name  = var.metabase_db_name
+    metabase_password = var.db_metabase_password
+    metabase_version  = var.metabase_version
+  })
 
   network {
     port = openstack_networking_port_v2.app.id

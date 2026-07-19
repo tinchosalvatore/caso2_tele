@@ -1,0 +1,111 @@
+#cloud-config
+# ===========================================================================
+# VM app -- Metabase (BI) sobre JVM
+#
+# Es un TEMPLATE (templatefile en compute.tf): se le inyecta la IP de la db,
+# el nombre del schema de metadata y la password de metabase_app.
+#
+# Capa de aplicacion. La alcanza el load balancer por :80 (sg_app <- sg_fe) y
+# el bastion por :22. Habla con la db por :3306.
+#
+# Dos procesos conviven en la VM:
+#   - Metabase (JVM) escuchando en 127.0.0.1:3000  -> NO expuesto a la red
+#   - nginx local escuchando en 0.0.0.0:80         -> proxy hacia el anterior
+# El diagrama pide :80 en esta capa; Metabase usa 3000. nginx cierra ese hueco.
+# ===========================================================================
+
+package_update: true
+packages:
+  - openjdk-21-jre-headless   # Metabase actual necesita Java 21
+  - nginx
+
+write_files:
+  # --- Secreto de conexion a MySQL -----------------------------------------
+  # EnvironmentFile 0600 leido por systemd (root). Si la password fuera a
+  # Environment= dentro del .service, `systemctl show metabase` la mostraria.
+  # Aca no. Es un secreto en reposo, acotado a root.
+  - path: /etc/metabase/metabase.env
+    permissions: '0600'
+    owner: root:root
+    content: |
+      MB_DB_TYPE=mysql
+      MB_DB_HOST=${db_host}
+      MB_DB_PORT=3306
+      MB_DB_DBNAME=${metabase_db_name}
+      MB_DB_USER=metabase_app
+      MB_DB_PASS=${metabase_password}
+      # Metabase escucha SOLO en loopback: inalcanzable desde la red, aun
+      # dentro de tele_net. La unica puerta es el nginx local.
+      MB_JETTY_HOST=127.0.0.1
+      MB_JETTY_PORT=3000
+
+  # --- Unit de systemd ------------------------------------------------------
+  # Restart=always + RestartSec=15: si Metabase arranca antes de que la db
+  # este lista (o se cae), reintenta solo. No se resuelve con depends_on de
+  # OpenTofu: eso ordena la CREACION de recursos, no el arranque de servicios.
+  - path: /etc/systemd/system/metabase.service
+    permissions: '0644'
+    content: |
+      [Unit]
+      Description=Metabase BI
+      After=network-online.target
+      Wants=network-online.target
+
+      [Service]
+      User=metabase
+      Group=metabase
+      EnvironmentFile=/etc/metabase/metabase.env
+      ExecStart=/usr/bin/java -jar /opt/metabase/metabase.jar
+      Restart=always
+      RestartSec=15
+      # WorkingDirectory: Metabase escribe ahi su carpeta de plugins.
+      WorkingDirectory=/opt/metabase
+      SyslogIdentifier=metabase
+
+      [Install]
+      WantedBy=multi-user.target
+
+  # --- nginx: proxy 80 -> 3000 ---------------------------------------------
+  # Los headers X-Forwarded-* dejan que Metabase sepa el host/proto reales
+  # detras del proxy. Upgrade/Connection habilitan websockets, que la UI usa.
+  - path: /etc/nginx/sites-available/metabase.conf
+    permissions: '0644'
+    content: |
+      server {
+          listen 80 default_server;
+          server_name _;
+
+          location / {
+              proxy_pass http://127.0.0.1:3000;
+              proxy_set_header Host              $host;
+              proxy_set_header X-Real-IP         $remote_addr;
+              proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+              proxy_set_header X-Forwarded-Proto $scheme;
+
+              proxy_http_version 1.1;
+              proxy_set_header Upgrade    $http_upgrade;
+              proxy_set_header Connection "upgrade";
+          }
+      }
+
+runcmd:
+  # Usuario de sistema sin login: el servicio no corre como root.
+  - useradd --system --no-create-home --shell /usr/sbin/nologin metabase
+  - mkdir -p /opt/metabase
+  # Descarga del JAR desde la URL de descarga DIRECTA.
+  # --retry cubre cortes de red; el JAR pesa ~630MB.
+  - curl -fSL --retry 3 --retry-delay 5 -o /opt/metabase/metabase.jar https://downloads.metabase.com/${metabase_version}/metabase.jar
+  # VERIFICACION: un JAR es un ZIP, empieza con los bytes magicos "PK".
+  # curl -f no alcanza: el server puede responder 200 con una pagina HTML.
+  # Si no es un JAR, abortar ruidoso en vez de dejar crash-loopear al servicio.
+  - [ sh, -c, "test \"$(head -c2 /opt/metabase/metabase.jar)\" = PK || { echo 'ERROR: metabase.jar no es un JAR valido' >&2; exit 1; }" ]
+  - chown -R metabase:metabase /opt/metabase
+  # nginx: sacar el sitio default y activar el nuestro.
+  - rm -f /etc/nginx/sites-enabled/default
+  - ln -sf /etc/nginx/sites-available/metabase.conf /etc/nginx/sites-enabled/metabase.conf
+  - nginx -t
+  - systemctl restart nginx
+  # Arrancar Metabase (solo se llega aca si el JAR paso la verificacion).
+  - systemctl daemon-reload
+  - systemctl enable --now metabase
+  - [ sh, -c, "date -Is > /var/log/appinit-ok" ]

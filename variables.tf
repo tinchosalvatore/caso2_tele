@@ -112,6 +112,18 @@ variable "db_mobility_ro_password" {
   sensitive   = true
 }
 
+variable "metabase_version" {
+  description = <<-EOT
+    Version de Metabase a descargar. "latest" baja la mas nueva; se puede fijar
+    a una version concreta (ej: "v0.50.8") para que cada apply instale el mismo
+    artefacto -- reproducibilidad, que es el sentido de IaC.
+    La URL de descarga directa es downloads.metabase.com/<version>/metabase.jar
+    (NO metabase.com/start/oss/jar, que es una pagina HTML, no el binario).
+  EOT
+  type        = string
+  default     = "latest"
+}
+
 variable "metabase_db_name" {
   description = "Schema de metadata interna de Metabase (usuarios, preguntas, dashboards)."
   type        = string
