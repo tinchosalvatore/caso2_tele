@@ -165,6 +165,15 @@ Se avanza por cortes, aplicando y verificando cada uno antes de seguir. Si se
 mezclan infraestructura y configuración en un mismo paso, ante una falla no se
 sabe cuál de las dos capas la causó.
 
+### Frontera de reproducibilidad (decisión)
+
+- **Infra + config de Metabase**: 100% reproducibles. `tofu apply` + boot
+  levanta todo, incluida la visualización (via `provision.py`).
+- **Carga del dataset**: paso manual (`scripts/load_dataset.sh`), a propósito.
+  Es una operación de datos de una sola vez, no infraestructura. Automatizarla
+  al boot exigiría que la VM db alcance el `.gz` por una URL; hoy el dump vive
+  versionado en el repo. La frontera IaC/datos se traza acá conscientemente.
+
 1. ✅ Higiene del repositorio y descubrimiento del entorno
 2. ✅ Capa de red
 3. ✅ Security groups

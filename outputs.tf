@@ -37,6 +37,11 @@ output "private_ips" {
   }
 }
 
+output "mobility_db_name" {
+  description = "Schema del dataset. Lo consume scripts/load_dataset.sh."
+  value       = var.mobility_db_name
+}
+
 output "metabase_url" {
   description = "URL de Metabase, servida por el load balancer. Requiere ZeroTier."
   value       = "http://${local.lb_access_v4}"
