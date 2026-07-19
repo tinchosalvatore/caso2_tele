@@ -1,0 +1,34 @@
+CLAUDE.md
+
+# --- OpenTofu / Terraform ---
+# El state mapea recurso-real <-> bloque .tf y guarda TODOS los valores en claro,
+# incluidas las passwords marcadas como sensitive. Nunca va a git.
+*.tfstate
+*.tfstate.*
+.terraform/
+crash.log
+
+# Los .tfvars llevan credenciales reales; solo se versiona la plantilla de ejemplo.
+*.tfvars
+!*.tfvars.example
+
+# --- Credenciales OpenStack ---
+# El openrc exporta OS_PASSWORD por variable de entorno. Fuera de git.
+openrc*
+*-openrc.sh
+clouds.yaml
+
+# --- Secretos de la base de datos ---
+# Archivo de entorno con las passwords de MySQL. Se sourcea antes de tofu.
+# Vive en data/, que por lo demas SI se versiona (el dataset), asi que la
+# regla apunta al archivo exacto.
+data/db-credentials.env
+*.env
+!*.env.example
+
+# --- Claves SSH ---
+*.pem
+id_rsa
+id_rsa.*
+id_ed25519
+id_ed25519.*
