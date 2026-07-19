@@ -13,9 +13,26 @@ variable "project_prefix" {
 # --- Red -------------------------------------------------------------------
 
 variable "external_network_name" {
-  description = "Red externa con salida a Internet. Es la única del tenant con Router Type = True."
+  description = <<-EOT
+    Red de SALIDA. El router le cuelga el gateway y hace SNAT: es lo que
+    permite que las VMs de la red privada hagan apt y bajen el JAR de Metabase.
+    NO se usa para entrar: se verificó que no acepta floating IPs alcanzables
+    ni permite crear puertos al tenant.
+  EOT
   type        = string
   default     = "ext_net"
+}
+
+variable "access_network_name" {
+  description = <<-EOT
+    Red de ENTRADA: la red compartida de la cátedra, y la "red externa" del
+    diagrama (recuadro verde).
+    Es la única alcanzable desde ZeroTier / el campus, y donde el tenant sí
+    puede crear puertos. Solo lb y bastion se cuelgan acá; app y db quedan
+    exclusivamente en la red privada.
+  EOT
+  type        = string
+  default     = "net_umstack"
 }
 
 variable "subnet_cidr" {

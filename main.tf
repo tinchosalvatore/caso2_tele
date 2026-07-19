@@ -21,9 +21,29 @@
 # destruyo, solo necesito su ID para colgarle el gateway del router.
 # Si esto fuera un `resource`, un `tofu destroy` intentaría borrar la red
 # externa de toda la facultad.
+#
+# ext_net cumple UNA sola función acá: SALIDA (SNAT) para que app y db puedan
+# hacer apt y bajar el JAR de Metabase.
+# NO sirve para entrar. Se verificó empíricamente:
+#   - floating IP -> TCP filtrado, incluso desde dentro de la nube
+#   - puerto directo -> 403 "Tenant not allowed to create port on this network"
+# La entrada va por net_umstack (ver abajo).
 data "openstack_networking_network_v2" "external" {
   name = var.external_network_name
 }
+
+# Red compartida de la facultad. Es la "red externa" del diagrama (recuadro
+# verde): la única alcanzable de verdad desde ZeroTier / el campus.
+# También es `data`: existe y es de la cátedra, no la gestionamos.
+data "openstack_networking_network_v2" "access" {
+  name = var.access_network_name
+}
+
+# NOTA: se intentó fijar solo la subnet IPv4 en los puertos de acceso, para
+# que las VMs no tomaran una IPv6 global. La política del tenant lo prohíbe
+# (403 sobre create_port:fixed_ips:subnet_id), así que los puertos toman v4+v6
+# y la protección queda enteramente a cargo del security group.
+# Ver el comentario largo en compute.tf.
 
 # --- Red privada -----------------------------------------------------------
 
@@ -58,25 +78,12 @@ resource "openstack_networking_router_interface_v2" "main" {
   subnet_id = openstack_networking_subnet_v2.private.id
 }
 
-# --- Floating IPs ----------------------------------------------------------
+# --- Sobre las floating IPs (eliminadas a propósito) -----------------------
 #
-# Dos, a propósito, y con roles distintos:
-#   - lb:      plano de DATOS. Es la URL que usan los clientes de Metabase.
-#   - bastion: plano de GESTIÓN. Es por donde entramos a operar.
+# El diseño original reservaba dos floating IPs en ext_net, una para el LB
+# (plano de datos) y otra para el bastion (plano de gestión).
+# Se descartaron tras verificar que en UMCloud no son alcanzables por TCP.
 #
-# Separarlas permite que mañana se cierre el SSH al mundo sin tocar el
-# servicio, y viceversa. Si fueran la misma IP, gestión y servicio quedarían
-# acoplados.
-#
-# Se reservan acá (no en compute.tf) porque son un recurso de RED: existen en
-# ext_net aunque todavía no haya ninguna VM a la cual asociarlas.
-
-resource "openstack_networking_floatingip_v2" "lb" {
-  pool        = var.external_network_name
-  description = "Entrada publica HTTP al load balancer"
-}
-
-resource "openstack_networking_floatingip_v2" "bastion" {
-  pool        = var.external_network_name
-  description = "Entrada SSH de administracion"
-}
+# La entrada al sistema se resuelve dando a lb y bastion una segunda placa de
+# red en net_umstack (ver compute.tf). La separación datos/gestión se mantiene:
+# son dos VMs distintas, con dos security groups distintos.
