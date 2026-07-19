@@ -1,0 +1,118 @@
+# ---------------------------------------------------------------------------
+# Variables del entorno UMCloud.
+# Los defaults NO son inventados: salen de correr `openstack ... list` contra
+# el tenant real. Si el TP se corre en otro tenant, se sobreescriben por tfvars.
+# ---------------------------------------------------------------------------
+
+variable "project_prefix" {
+  description = "Prefijo de todos los recursos, para distinguirlos de infra ajena en el tenant compartido."
+  type        = string
+  default     = "tele"
+}
+
+# --- Red -------------------------------------------------------------------
+
+variable "external_network_name" {
+  description = "Red externa con salida a Internet. Es la única del tenant con Router Type = True."
+  type        = string
+  default     = "ext_net"
+}
+
+variable "subnet_cidr" {
+  description = <<-EOT
+    CIDR de la red privada.
+    Elegido para NO solaparse con lo que ya existe en el tenant:
+      - 10.201.0.0/16 -> net_umstack (red compartida de la cátedra)
+      - 172.19.0.0/24 -> martins-net (red previa, ajena a este TP)
+    Un solapamiento haría que el router no sepa a dónde rutear.
+  EOT
+  type        = string
+  default     = "10.20.0.0/24"
+}
+
+variable "dns_nameservers" {
+  description = <<-EOT
+    DNS de la subnet. Copiados de subnet_umstack, que es la que se sabe que
+    funciona en UMCloud.
+    Sin esto cloud-init no resuelve nombres: no hay apt, no hay descarga del
+    JAR de Metabase, y las VMs bootean vacías. martins-subnet lo tiene vacío.
+  EOT
+  type        = list(string)
+  default     = ["8.8.8.8", "1.1.1.1"]
+}
+
+# --- Compute ---------------------------------------------------------------
+
+variable "image_name" {
+  description = <<-EOT
+    Imagen base. Se usa Ubuntu pelada a propósito, NO las golden images del
+    tenant (srv-mysql-*, srv-nginx-*): la instalación y configuración se hace
+    por cloud-init, que es la capa que el TP tiene que mostrar.
+  EOT
+  type        = string
+  default     = "ubuntu_2404"
+}
+
+variable "keypair_name" {
+  description = "Keypair ya existente en el tenant. La clave privada vive en la notebook, nunca en el repo."
+  type        = string
+  default     = "openstack_um_cloud"
+}
+
+variable "flavors" {
+  description = <<-EOT
+    Flavor por rol. Cada uno dimensionado por lo que corre adentro:
+      lb / bastion -> m1.xsmall (1 GB): nginx y sshd casi no consumen.
+      db           -> m1.small  (2 GB): MySQL con un dataset chico.
+      app          -> m1.medium (4 GB): es una JVM. Con 2 GB Metabase arranca
+                      al límite y muere por OOM al correr queries.
+    Total: 5 vCPU / 8 GB, holgado contra la quota (25 cores / 64 GB).
+  EOT
+  type        = map(string)
+  default = {
+    lb      = "m1.xsmall"
+    app     = "m1.medium"
+    db      = "m1.small"
+    bastion = "m1.xsmall"
+  }
+}
+
+# --- Base de datos ---------------------------------------------------------
+
+variable "db_root_password" {
+  description = "Password de root de MySQL. Se pasa por TF_VAR_db_root_password, nunca por archivo."
+  type        = string
+  sensitive   = true
+}
+
+variable "db_metabase_password" {
+  description = "Password del usuario que Metabase usa para su schema de metadata."
+  type        = string
+  sensitive   = true
+}
+
+variable "metabase_db_name" {
+  description = "Schema de metadata interna de Metabase (usuarios, preguntas, dashboards)."
+  type        = string
+  default     = "metabaseappdb"
+}
+
+variable "mobility_db_name" {
+  description = "Schema del dataset de Google Mobility. Separado del anterior: son datos de distinta naturaleza y con distintos permisos."
+  type        = string
+  default     = "mobility"
+}
+
+# --- Acceso ----------------------------------------------------------------
+
+variable "ssh_allowed_cidr" {
+  description = <<-EOT
+    Origen permitido para SSH contra el BASTION únicamente.
+    Se deja en 0.0.0.0/0 porque el día de la defensa no se sabe desde qué IP
+    se conecta uno. Es una decisión consciente, no un descuido: el bastion es
+    el ÚNICO host con SSH abierto al mundo; las otras tres capas solo aceptan
+    SSH desde sg_bastion.
+  EOT
+  type        = string
+  default     = "0.0.0.0/0"
+}
