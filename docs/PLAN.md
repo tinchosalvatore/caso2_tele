@@ -169,7 +169,7 @@ sabe cuál de las dos capas la causó.
 2. ✅ Capa de red
 3. ✅ Security groups
 4. ✅ Cómputo con cloud-init mínimo (verificación de boot y conectividad)
-5. ⬜ cloud-init reales: MySQL, Metabase + nginx local, nginx del LB
+5. ✅ cloud-init reales: MySQL, Metabase + nginx local, nginx del LB, netplan
 6. ⬜ Carga del dataset de Google Mobility
 7. ⬜ Configuración de Metabase y armado de la visualización
 
@@ -180,22 +180,38 @@ sabe cuál de las dos capas la causó.
 Lo que importa no es que el servicio responda, sino que **el aislamiento
 funcione**. Pruebas ejecutadas sobre el corte 4:
 
+Matriz final, con toda la infraestructura desplegada:
+
 | Prueba | Esperado | Resultado |
 |---|---|---|
+| **Positivos** | | |
+| `http://<lb>/api/health` desde la notebook (LB→app→Metabase) | funciona | ✅ 200 |
 | SSH al bastión desde ZeroTier | funciona | ✅ |
 | SSH a `lb`/`app`/`db` con `ssh -J` por el bastión | funciona | ✅ |
-| `app` y `db` alcanzables directo desde afuera | debe fallar | ✅ inalcanzables |
-| `lb` → `db:3306` | debe fallar | ✅ bloqueado |
+| `app` → `db:3306` | funciona | ✅ |
+| Metabase escribe su metadata en MySQL (no H2) | 175 tablas | ✅ |
+| **Negativos** | | |
+| `db:3306` directo desde afuera | debe fallar | ✅ bloqueado |
+| `app:80` directo desde afuera | debe fallar | ✅ bloqueado |
+| `lb` → `db:3306` (no es `sg_app`) | debe fallar | ✅ bloqueado |
+| `app:3000` desde el LB (bind loopback) | debe fallar | ✅ bloqueado |
 | SSH por la IPv6 global del bastión | debe fallar | ✅ cerrado |
-| `app` → `db:3306` | debe funcionar | ⏳ pendiente: MySQL aún no instalado |
 
-### Pendientes conocidos
+### Bugs encontrados y resueltos (material de defensa)
 
-- **Doble ruta por default en `lb` y `bastion`.** Al tener dos interfaces, ambas
-  reciben ruta por default con métrica 100. Hoy funciona por desempate arbitrario
-  del kernel, no por diseño. Se corrige en el corte 5 con un netplan que suprima
-  la ruta por default de la placa privada.
-- **`app` → `db:3306`** debe reverificarse una vez que MySQL esté escuchando.
+- **MySQL escuchaba en localhost pese al `.cnf`.** Los archivos de `conf.d/` se
+  leen alfabéticamente y el último gana; `99-tele.cnf` ordena *antes* que
+  `mysqld.cnf`. Se renombró a `zz-tele.cnf`. Detectado con `ss`, no asumido.
+- **JAR de Metabase corrupto.** `metabase.com/start/oss/jar` es una página HTML;
+  `curl -f` la aceptó (HTTP 200). Se cambió a la URL de descarga directa y se
+  agregó verificación de bytes mágicos `PK`. El `Restart=always` dejó el error
+  repetido en `journalctl`, que fue lo que permitió diagnosticarlo.
+- **Doble ruta por default en las VMs dual-homed.** Se resolvió con un netplan
+  que sube la métrica del default de la placa privada a 300; la de acceso (100)
+  gana de forma determinística.
+- **`Failed to allocate the network(s)` al recrear el LB.** Error transitorio de
+  Nova al reusar un puerto persistido; se resolvió reaplicando (tofu marcó la
+  instancia como `tainted` y la recreó).
 
 ---
 

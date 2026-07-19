@@ -1,0 +1,34 @@
+#cloud-config
+# ===========================================================================
+# VM bastion -- punto de entrada de gestion (SSH)
+#
+# Dual-homed igual que el lb:
+#   - ens3 en net_umstack -> recibe el SSH de administracion (:22 desde 0/0)
+#   - ens4 en tele_net    -> alcanza a las capas internas para operarlas
+#
+# Superficie minima a proposito: es el host mas expuesto. Solo se agrega el
+# cliente de MySQL para poder diagnosticar la db durante la defensa.
+# NO corre ningun servicio propio mas alla de sshd.
+# ===========================================================================
+
+package_update: true
+packages:
+  - mysql-client
+
+write_files:
+  # Mismo netplan que el lb: la placa privada (ens4) pierde la ruta por
+  # default para que las respuestas al SSH entrante salgan por ens3.
+  # Ver la explicacion completa en lb.yaml.
+  - path: /etc/netplan/99-tele-routing.yaml
+    permissions: '0600'
+    content: |
+      network:
+        version: 2
+        ethernets:
+          ens4:
+            dhcp4-overrides:
+              route-metric: 300
+
+runcmd:
+  - netplan apply
+  - [ sh, -c, "date -Is > /var/log/bastioninit-ok" ]

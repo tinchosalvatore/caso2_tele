@@ -105,28 +105,6 @@ resource "openstack_networking_port_v2" "bastion_access" {
   security_group_ids = [openstack_networking_secgroup_v2.bastion.id]
 }
 
-# --- user_data provisorio --------------------------------------------------
-#
-# Este corte solo verifica que las VMs booteen, tomen IP y tengan salida a
-# Internet. La instalacion real (MySQL, Metabase, nginx) va en el corte
-# siguiente, en cloud-init/*.yaml.
-#
-# Se separan a proposito: si se mezclan infra y configuracion en un mismo
-# paso, cuando algo falle no se sabe si el problema es la red o el script.
-
-locals {
-  bootstrap_user_data = <<-EOT
-    #cloud-config
-    package_update: true
-    packages:
-      - curl
-    runcmd:
-      # Marca de agua: si este archivo existe, cloud-init corrio COMPLETO y
-      # hubo DNS + salida a Internet (apt update tuvo que resolver y bajar).
-      - [ sh, -c, "date -Is > /var/log/bootstrap-ok" ]
-  EOT
-}
-
 # --- Instancias ------------------------------------------------------------
 #
 # El depends_on del router_interface es deliberado y es la excepcion a la
@@ -141,7 +119,7 @@ resource "openstack_compute_instance_v2" "bastion" {
   image_name  = var.image_name
   flavor_name = var.flavors["bastion"]
   key_pair    = var.keypair_name
-  user_data   = local.bootstrap_user_data
+  user_data   = file("${path.module}/cloud-init/bastion.yaml")
 
   # ORDEN DELIBERADO: la placa de acceso va PRIMERO.
   # Con dos interfaces, ambas piden ruta por default por DHCP y gana la de
@@ -210,7 +188,11 @@ resource "openstack_compute_instance_v2" "lb" {
   image_name  = var.image_name
   flavor_name = var.flavors["lb"]
   key_pair    = var.keypair_name
-  user_data   = local.bootstrap_user_data
+
+  # app_host = IP privada de la app: crea la arista lb -> app en el grafo.
+  user_data = templatefile("${path.module}/cloud-init/lb.yaml", {
+    app_host = openstack_networking_port_v2.app.all_fixed_ips[0]
+  })
 
   # Mismo criterio de orden que el bastion: acceso primero.
   network {

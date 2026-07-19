@@ -1,0 +1,69 @@
+#cloud-config
+# ===========================================================================
+# VM lb -- load balancer / reverse proxy (nginx)
+#
+# Es un TEMPLATE (templatefile en compute.tf): se le inyecta la IP privada de
+# la app.
+#
+# Es el UNICO punto de entrada del servicio. Dual-homed:
+#   - ens3 en net_umstack -> recibe a los clientes (:80 desde 0.0.0.0/0)
+#   - ens4 en tele_net    -> habla con la app por su IP privada
+# nginx escucha en :80 y reenvia a app:80 (que a su vez proxea a Metabase:3000).
+# ===========================================================================
+
+package_update: true
+packages:
+  - nginx
+
+write_files:
+  # --- Reverse proxy hacia la app ------------------------------------------
+  - path: /etc/nginx/sites-available/lb.conf
+    permissions: '0644'
+    content: |
+      server {
+          listen 80 default_server;
+          server_name _;
+
+          location / {
+              proxy_pass http://${app_host}:80;
+              proxy_set_header Host              $host;
+              proxy_set_header X-Real-IP         $remote_addr;
+              proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+              proxy_set_header X-Forwarded-Proto $scheme;
+
+              proxy_http_version 1.1;
+              proxy_set_header Upgrade    $http_upgrade;
+              proxy_set_header Connection "upgrade";
+          }
+      }
+
+  # --- Ruteo de VM dual-homed ----------------------------------------------
+  # ens4 = placa PRIVADA (tele_net). Se le sube la metrica de la ruta por
+  # default a 300 para que PIERDA contra ens3 (placa de acceso, net_umstack,
+  # metrica 100 por default).
+  #
+  # Sin esto, ambas placas ponen default con metrica 100 y el kernel desempata
+  # arbitrariamente. Si ganara ens4, una conexion entrante por ens3 responderia
+  # por ens4 (ruteo asimetrico) y el anti-spoofing de Neutron la descartaria.
+  #
+  # ens3/ens4 son deterministas por el ORDEN de attachment: en compute.tf el
+  # puerto de acceso va primero. Solo se toca la metrica del default; la ruta
+  # on-link a 10.20.0.0/24 queda intacta.
+  - path: /etc/netplan/99-tele-routing.yaml
+    permissions: '0600'
+    content: |
+      network:
+        version: 2
+        ethernets:
+          ens4:
+            dhcp4-overrides:
+              route-metric: 300
+
+runcmd:
+  - netplan apply
+  # nginx: sacar el sitio default y activar el nuestro.
+  - rm -f /etc/nginx/sites-enabled/default
+  - ln -sf /etc/nginx/sites-available/lb.conf /etc/nginx/sites-enabled/lb.conf
+  - nginx -t
+  - systemctl restart nginx
+  - [ sh, -c, "date -Is > /var/log/lbinit-ok" ]
