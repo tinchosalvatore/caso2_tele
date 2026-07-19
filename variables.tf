@@ -96,14 +96,18 @@ variable "flavors" {
 
 # --- Base de datos ---------------------------------------------------------
 
-variable "db_root_password" {
-  description = "Password de root de MySQL. Se pasa por TF_VAR_db_root_password, nunca por archivo."
+# root de MySQL NO tiene password: queda con auth_socket (solo se entra por
+# socket local, siendo root del SO). No hay credencial de red de root que robar,
+# y la carga del dataset via `sudo mysql` funciona por ese mismo socket.
+
+variable "db_metabase_password" {
+  description = "Password del usuario metabase_app (metadata de Metabase). Se pasa por TF_VAR_, nunca por archivo."
   type        = string
   sensitive   = true
 }
 
-variable "db_metabase_password" {
-  description = "Password del usuario que Metabase usa para su schema de metadata."
+variable "db_mobility_ro_password" {
+  description = "Password del usuario mobility_ro (solo SELECT sobre el dataset)."
   type        = string
   sensitive   = true
 }

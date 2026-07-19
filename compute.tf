@@ -165,7 +165,16 @@ resource "openstack_compute_instance_v2" "db" {
   image_name  = var.image_name
   flavor_name = var.flavors["db"]
   key_pair    = var.keypair_name
-  user_data   = local.bootstrap_user_data
+
+  # templatefile() resuelve los ${...} del YAML con estos valores, en tiempo de
+  # plan. La VM recibe el cloud-init ya completo; no hay secretos "por buscar"
+  # dentro de la maquina.
+  user_data = templatefile("${path.module}/cloud-init/db.yaml", {
+    metabase_db_name     = var.metabase_db_name
+    mobility_db_name     = var.mobility_db_name
+    metabase_password    = var.db_metabase_password
+    mobility_ro_password = var.db_mobility_ro_password
+  })
 
   network {
     port = openstack_networking_port_v2.db.id

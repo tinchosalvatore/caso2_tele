@@ -1,0 +1,77 @@
+#cloud-config
+# ===========================================================================
+# VM db -- MySQL 8.0
+#
+# Es un TEMPLATE: compute.tf lo pasa por templatefile() e inyecta las
+# passwords y los nombres de schema. Las interpolaciones las resuelve OpenTofu
+# ANTES de que la VM arranque; cloud-init recibe el YAML ya con los valores
+# puestos. (Un literal con signo peso y llave se escaparia duplicando el signo.)
+#
+# Capa mas interna de la arquitectura: solo la alcanza sg_app (:3306) y el
+# bastion (:22). No tiene salida al mundo salvo el SNAT del router para apt.
+# ===========================================================================
+
+package_update: true
+packages:
+  - mysql-server
+
+write_files:
+  # --- 1. Que MySQL escuche en la red privada, no solo en localhost --------
+  # Ubuntu deja bind-address = 127.0.0.1 en mysqld.cnf. Con eso, la app NUNCA
+  # llega y el sg_db no se ejercita: la regla del 3306 seria letra muerta
+  # porque no habria nada escuchando en 10.20.0.x.
+  #
+  # El nombre EMPIEZA con zz a proposito: los archivos de conf.d se leen en
+  # orden alfabetico y el ULTIMO gana. mysqld.cnf (empieza con 'm') trae el
+  # bind-address = 127.0.0.1; para pisarlo, el nuestro tiene que leerse
+  # despues. Un '99-...' NO alcanza: el digito 9 ordena ANTES que la letra m.
+  #
+  # write_files corre antes de instalar el paquete y crea el directorio si no
+  # existe; MySQL lee este .cnf en su primer arranque.
+  - path: /etc/mysql/mysql.conf.d/zz-tele.cnf
+    permissions: '0644'
+    content: |
+      [mysqld]
+      bind-address = 0.0.0.0
+
+  # --- 2. Esquemas, usuarios y permisos ------------------------------------
+  # Se ejecuta como root por socket local (auth_socket), sin password.
+  #
+  # Dos usuarios, principio de menor privilegio:
+  #   metabase_app -> ALL en metabaseappdb (su metadata: lee y escribe)
+  #   mobility_ro  -> solo SELECT en mobility (fuente de datos de solo lectura)
+  #
+  # Host acotado a 10.20.0.% (subred privada) y no a '%': defensa en
+  # profundidad sobre el security group. Se usa la subred y no la IP exacta
+  # de la app por la misma razon que remote_group_id: la IP es cattle.
+  #
+  # IDENTIFIED WITH mysql_native_password: el driver de Metabase se conecta
+  # sin fricciones sobre red plana. El canal ya esta aislado por los SG en la
+  # red privada, asi que no se pierde seguridad relevante.
+  - path: /root/init-db.sql
+    permissions: '0600'
+    content: |
+      CREATE DATABASE IF NOT EXISTS ${metabase_db_name}
+        CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+      CREATE DATABASE IF NOT EXISTS ${mobility_db_name}
+        CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
+      CREATE USER IF NOT EXISTS 'metabase_app'@'10.20.0.%'
+        IDENTIFIED WITH mysql_native_password BY '${metabase_password}';
+      GRANT ALL PRIVILEGES ON ${metabase_db_name}.* TO 'metabase_app'@'10.20.0.%';
+
+      CREATE USER IF NOT EXISTS 'mobility_ro'@'10.20.0.%'
+        IDENTIFIED WITH mysql_native_password BY '${mobility_ro_password}';
+      GRANT SELECT ON ${mobility_db_name}.* TO 'mobility_ro'@'10.20.0.%';
+
+      FLUSH PRIVILEGES;
+
+runcmd:
+  # El paquete ya dejo MySQL corriendo. Restart para tomar el bind-address.
+  - systemctl restart mysql
+  # Aplicar esquema y permisos. root entra por socket, sin password.
+  - mysql < /root/init-db.sql
+  # El init.sql tiene passwords en claro: se borra despues de aplicarlo.
+  - rm -f /root/init-db.sql
+  # Marca de agua: confirma que cloud-init llego hasta el final.
+  - [ sh, -c, "date -Is > /var/log/dbinit-ok" ]
