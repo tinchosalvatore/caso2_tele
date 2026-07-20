@@ -15,6 +15,23 @@ la configuración interna de Metabase— se crea desde cero con un único
 
 ---
 
+## Evidencia de funcionamiento
+
+En [`proof_of_work/`](proof_of_work/) hay capturas y un video de la aplicación
+desplegada y funcionando:
+
+| Archivo | Qué muestra |
+|---------|-------------|
+| [`mendoza_capital_results.png`](proof_of_work/mendoza_capital_results.png) | La visualización filtrada por **Mendoza Province + Capital Department**: la serie diaria de las 4 categorías entre 2020 y 2022. Es la reproducción fiel de la consigna. |
+| [`mendoza_results.png`](proof_of_work/mendoza_results.png) | La misma consulta filtrando **solo por provincia**, sin departamento. |
+| [`video_results.mp4`](proof_of_work/video_results.mp4) | Recorrido en video de la aplicación en uso. |
+
+En las capturas se ve la URL real del load balancer, el gráfico de líneas con las
+cuatro series (`retail`, `grocery`, `parks`, `workplaces`) y los cuatro filtros
+funcionando.
+
+---
+
 ## 1. Qué es y qué hace
 
 Es una aplicación web clásica de tres capas (front / aplicación / datos), más un
@@ -215,7 +232,8 @@ Tiene cuatro filtros arriba:
 - **Fecha desde** / **Fecha hasta** — el rango temporal.
 
 Cambiás los filtros y el gráfico se actualiza. Con `Mendoza Province` +
-`Capital Department` reproduce la visualización del enunciado.
+`Capital Department` reproduce la visualización del enunciado — ver las capturas
+en [`proof_of_work/`](proof_of_work/).
 
 ### Conectarse a las máquinas (administración)
 
@@ -307,6 +325,7 @@ data/
 docs/
   PLAN.md            decisiones de diseño y justificación técnica
   README.md          este archivo
+  proof_of_work/     capturas y video de la aplicación funcionando
 ```
 
 Para el detalle de **por qué** se tomó cada decisión de diseño (y los problemas
